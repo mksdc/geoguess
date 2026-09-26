@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wo bin ich? – Street-View-Ratespiel</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #16324F;
+    --paper: #EEF2F0;
+    --guess: #F2C230;
+    --target: #2E9D5B;
+    --line: #D8433A;
+    --muted: #5B6B78;
+    font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ink); color: var(--ink); overflow: hidden; }
+
+  .layer { position: absolute; inset: 0; }
+  .hidden { visibility: hidden; pointer-events: none; }
+  #pano, #map { position: absolute; inset: 0; }
+
+  /* Kopfzeile */
+  #hud {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .chip {
+    background: var(--paper); border-radius: 999px; padding: 8px 14px;
+    font-weight: 600; font-size: 15px; box-shadow: 0 2px 0 rgba(22,50,79,.35);
+  }
+
+  /* Aktionsleiste unten */
+  .bar {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+    width: max-content; max-width: calc(100% - 24px);
+  }
+  button {
+    font: inherit; font-weight: 600; font-size: 17px; cursor: pointer;
+    border: 2px solid var(--ink); border-radius: 12px; padding: 12px 20px;
+    background: var(--paper); color: var(--ink);
+    box-shadow: 0 3px 0 var(--ink); transition: transform .08s, box-shadow .08s;
+  }
+  button:active { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); }
+  button.primary { background: var(--guess); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--guess); outline-offset: 2px; }
+
+  /* Startbildschirm & Ergebnisse */
+  .screen {
+    position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+    background: var(--ink); padding: 24px;
+  }
+  .card {
+    background: var(--paper); border-radius: 18px; padding: 32px; width: min(520px, 100%);
+    box-shadow: 0 6px 0 rgba(0,0,0,.35);
+  }
+  h1 { font-size: clamp(40px, 8vw, 64px); line-height: .95; margin: 0 0 12px; font-weight: 800; letter-spacing: -.02em; }
+  h2 { font-size: 28px; margin: 0 0 8px; font-weight: 800; }
+  p { line-height: 1.5; margin: 0 0 16px; }
+  .small { font-size: 14px; color: var(--muted); }
+  label { font-weight: 600; display: block; margin-bottom: 6px; }
+  input {
+    font: inherit; width: 100%; padding: 12px; border-radius: 10px;
+    border: 2px solid var(--ink); margin-bottom: 16px; background: #fff;
+  }
+  #error { color: var(--line); font-weight: 600; min-height: 1.5em; }
+
+  /* Ergebnis-Panel über der Karte */
+  #result {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 15;
+    background: var(--paper); border-radius: 18px; padding: 20px 24px; width: min(440px, calc(100% - 24px));
+    box-shadow: 0 6px 0 rgba(0,0,0,.35); text-align: center;
+  }
+  .big { font-size: 44px; font-weight: 800; line-height: 1; margin: 4px 0 6px; }
+  .meter { height: 10px; border-radius: 99px; background: #cfd8d4; overflow: hidden; margin: 12px 0 16px; }
+  .meter > div { height: 100%; background: var(--target); width: 0; transition: width .6s ease-out; }
+  .legend { display: flex; gap: 16px; justify-content: center; font-size: 14px; margin-bottom: 14px; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--ink); }
+
+  #loading {
+    position: absolute; inset: 0; z-index: 12; display: grid; place-items: center;
+    background: var(--ink); color: var(--paper); font-size: 22px; font-weight: 600;
+  }
+  @media (prefers-reduced-motion: reduce) { .meter > div { transition: none; } }
+</style>
+</head>
+<body>
+
+<!-- Startbildschirm -->
+<div id="start" class="screen">
+  <div class="card">
+    <h1>Wo bin ich?</h1>
+    <p>Du landest irgendwo auf der Welt in Street View. Schau dich um, dann wechsle zur Karte und setze deinen Tipp. 5 Runden, maximal 5000 Punkte pro Runde.</p>
+    <div id="keyBox">
+      <label for="apikey">Google Maps API-Schlüssel</label>
+      <input id="apikey" type="text" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="error"></div>
+    <button class="primary" id="startBtn">Spiel starten</button>
+  </div>
+</div>
+
+<!-- Spiel -->
+<div id="game" class="hidden">
+  <div id="hud">
+    <span class="chip" id="roundChip">Runde 1 / 5</span>
+    <span class="chip" id="scoreChip">0 Punkte</span>
+  </div>
+
+  <div id="streetLayer" class="layer">
+    <div id="pano"></div>
+    <div class="bar">
+      <button id="backToStartBtn" title="Zurück zum Ausgangspunkt">Zum Startpunkt</button>
+      <button class="primary" id="toMapBtn">Zur Karte</button>
+    </div>
+  </div>
+
+  <div id="mapLayer" class="layer hidden">
+    <div id="map"></div>
+    <div class="bar" id="mapBar">
+      <button id="toStreetBtn">Zurück zu Street View</button>
+      <button class="primary" id="guessBtn" disabled>Tipp abgeben</button>
+    </div>
+    <div id="result" class="hidden">
+      <div class="small">Du lagst daneben um</div>
+      <div class="big" id="distText">–</div>
+      <div id="pointsText" style="font-weight:600">0 Punkte</div>
+      <div class="meter"><div id="meterFill"></div></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--guess)"></span>Dein Tipp</span>
+        <span><span class="dot" style="background:var(--target)"></span>Richtiger Ort</span>
+      </div>
+      <button class="primary" id="nextBtn">Nächste Runde</button>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">Suche einen Ort …</div>
+</div>
+
+<!-- Endbildschirm -->
+<div id="end" class="screen hidden">
+  <div class="card" style="text-align:center">
+    <h2>Spiel vorbei</h2>
+    <div class="big" id="finalScore">0</div>
+    <p id="finalText">von 25 000 Punkten</p>
+    <button class="primary" id="againBtn">Nochmal spielen</button>
+  </div>
+</div>
+
+<script>
+/* ---------- Einstellungen ---------- */
+
+// >>> HIER DEINEN GOOGLE MAPS API-SCHLÜSSEL EINTRAGEN <<<
+const API_KEY = "....";
+
+const ROUNDS = 5;
+const MAX_POINTS = 5000;
+
+// Regionen mit guter Street-View-Abdeckung: [minLat, maxLat, minLng, maxLng, Gewicht]
+const REGIONS = [
+  [36, 60, -10, 30, 6],     // Europa
+  [58, 70, 5, 30, 1],       // Skandinavien
+  [26, 48, -124, -70, 6],   // USA
+  [43, 54, -125, -64, 2],   // Kanada (Süden)
+  [15, 32, -115, -87, 2],   // Mexiko
+  [-33, -3, -55, -35, 3],   // Brasilien
+  [-45, -18, -73, -58, 2],  // Chile / Argentinien
+  [-34, -23, 17, 32, 2],    // Südafrika
+  [31, 44, 129, 146, 3],    // Japan
+  [34, 38, 126, 130, 1],    // Südkorea
+  [-38, -12, 113, 153, 3],  // Australien
+  [-46, -35, 167, 178, 1],  // Neuseeland
+  [6, 20, 97, 106, 2],      // Thailand
+  [-8, 5, 95, 115, 2],      // Indonesien
+  [8, 28, 72, 88, 2],       // Indien
+  [42, 60, 30, 60, 2],      // Westrussland
+  [36, 42, 26, 44, 1],      // Türkei
+];
+
+/* ---------- Zustand ---------- */
+let sv, pano, map, guessMarker, targetMarker, line;
+let target = null, startPano = null;
+let round = 0, total = 0;
+
+const $ = id => document.getElementById(id);
+
+/* ---------- API laden ---------- */
+const HAS_EMBEDDED_KEY = API_KEY && API_KEY !== "DEIN_API_SCHLUESSEL";
+
+if (HAS_EMBEDDED_KEY) {
+  $("keyBox").style.display = "none";   // Eingabefeld ausblenden
+} else {
+  try { $("apikey").value = localStorage.getItem("gg_key") || ""; } catch (e) {}
+}
+
+$("startBtn").onclick = () => {
+  const key = HAS_EMBEDDED_KEY ? API_KEY : $("apikey").value.trim();
+  if (!key) { $("error").textContent = "Gib zuerst deinen API-Schlüssel ein."; return; }
+  if (!HAS_EMBEDDED_KEY) { try { localStorage.setItem("gg_key", key); } catch (e) {} }
+  $("error").textContent = "";
+  $("startBtn").disabled = true;
+  $("startBtn").textContent = "Lade …";
+
+  window.gm_authFailure = () => {
+    alert("Google hat den API-Schlüssel abgelehnt. Prüfe, ob die Maps JavaScript API aktiviert ist und Billing eingerichtet ist.");
+    location.reload();
+  };
+
+  const s = document.createElement("script");
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&callback=initGame`;
+  s.async = true;
+  s.onerror = () => {
+    $("error").textContent = "Google Maps konnte nicht geladen werden.";
+    $("startBtn").disabled = false;
+    $("startBtn").textContent = "Spiel starten";
+  };
+  document.head.appendChild(s);
+};
+
+/* ---------- Initialisierung ---------- */
+window.initGame = function () {
+  sv = new google.maps.StreetViewService();
+
+  pano = new google.maps.StreetViewPanorama($("pano"), {
+    addressControl: false,      // keine Adresse anzeigen
+    showRoadLabels: false,      // keine Strassennamen
+    fullscreenControl: false,
+    motionTracking: false,
+    motionTrackingControl: false,
+    enableCloseButton: false,
+    linksControl: true,         // Pfeile zum Herumlaufen
+  });
+
+  map = new google.maps.Map($("map"), {
+    center: { lat: 20, lng: 0 },
+    zoom: 2,
+    streetViewControl: false,
+    mapTypeControl: false,
+    fullscreenControl: false,
+    clickableIcons: false,
+    draggableCursor: "crosshair",
+  });
+
+  map.addListener("click", e => {
+    if (!$("result").classList.contains("hidden")) return; // nach Auflösung nicht mehr setzen
+    placeGuess(e.latLng);
+  });
+
+  $("start").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  newGame();
+};
+
+/* ---------- Spielablauf ---------- */
+function newGame() {
+  round = 0; total = 0;
+  $("end").classList.add("hidden");
+  nextRound();
+}
+
+async function nextRound() {
+  round++;
+  if (round > ROUNDS) return showEnd();
+
+  // Karte zurücksetzen
+  [guessMarker, targetMarker, line].forEach(o => o && o.setMap(null));
+  guessMarker = targetMarker = line = null;
+  $("guessBtn").disabled = true;
+  $("result").classList.add("hidden");
+  $("mapBar").classList.remove("hidden");
+  map.setCenter({ lat: 20, lng: 0 });
+  map.setZoom(2);
+
+  updateHud();
+  showLayer("street");
+  $("loading").classList.remove("hidden");
+
+  const data = await findRandomPanorama();
+  $("loading").classList.add("hidden");
+  if (!data) { alert("Kein Street-View-Ort gefunden. Versuch es nochmal."); round--; return nextRound(); }
+
+  target = data.location.latLng;
+  startPano = data.location.pano;
+  pano.setPano(startPano);
+  pano.setPov({ heading: Math.random() * 360, pitch: 0 });
+  pano.setZoom(0);
+  pano.setVisible(true);
+}
+
+function randomPoint() {
+  const sum = REGIONS.reduce((s, r) => s + r[4], 0);
+  let n = Math.random() * sum;
+  const r = REGIONS.find(r => (n -= r[4]) < 0) || REGIONS[0];
+  return {
+    lat: r[0] + Math.random() * (r[1] - r[0]),
+    lng: r[2] + Math.random() * (r[3] - r[2]),
+  };
+}
+
+async function findRandomPanorama(tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const { data } = await sv.getPanorama({
+        location: randomPoint(),
+        radius: 50000, // 50 km Suchradius
+        sources: [google.maps.StreetViewSource.GOOGLE], // nur offizielle Google-Aufnahmen
+        preference: google.maps.StreetViewPreference.NEAREST,
+      });
+      if (data && data.location) return data;
+    } catch (e) { /* kein Panorama in der Nähe → neuer Versuch */ }
+  }
+  return null;
+}
+
+function placeGuess(latLng) {
+  if (!guessMarker) {
+    guessMarker = new google.maps.Marker({ map, icon: pin("#F2C230") });
+  }
+  guessMarker.setPosition(latLng);
+  $("guessBtn").disabled = false;
+}
+
+function submitGuess() {
+  if (!guessMarker) return;
+  const guess = guessMarker.getPosition();
+  const km = haversine(guess.lat(), guess.lng(), target.lat(), target.lng());
+  const points = Math.round(MAX_POINTS * Math.exp(-km / 2000));
+  total += points;
+
+  targetMarker = new google.maps.Marker({ map, position: target, icon: pin("#2E9D5B") });
+
+  // Linie (Grosskreis) zwischen Tipp und richtiger Antwort
+  line = new google.maps.Polyline({
+    map,
+    path: [guess, target],
+    geodesic: true,
+    strokeOpacity: 0,
+    icons: [{
+      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#D8433A", strokeWeight: 3, scale: 3 },
+      offset: "0", repeat: "14px",
+    }],
+  });
+
+  const bounds = new google.maps.LatLngBounds();
+  bounds.extend(guess); bounds.extend(target);
+  map.fitBounds(bounds, { top: 80, left: 40, right: 40, bottom: 300 });
+  if (km < 1) map.setZoom(15);
+
+  $("distText").textContent = formatDist(km);
+  $("pointsText").textContent = `+${points.toLocaleString("de-DE")} Punkte`;
+  $("meterFill").style.width = "0";
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    $("meterFill").style.width = (points / MAX_POINTS * 100) + "%";
+  }));
+  $("nextBtn").textContent = round === ROUNDS ? "Ergebnis ansehen" : "Nächste Runde";
+  $("mapBar").classList.add("hidden");
+  $("result").classList.remove("hidden");
+  updateHud();
+}
+
+function showEnd() {
+  $("finalScore").textContent = total.toLocaleString("de-DE");
+  $("finalText").textContent = `von ${(ROUNDS * MAX_POINTS).toLocaleString("de-DE")} Punkten`;
+  $("end").classList.remove("hidden");
+}
+
+/* ---------- Hilfsfunktionen ---------- */
+function showLayer(which) {
+  $("streetLayer").classList.toggle("hidden", which !== "street");
+  $("mapLayer").classList.toggle("hidden", which !== "map");
+}
+
+function updateHud() {
+  $("roundChip").textContent = `Runde ${Math.min(round, ROUNDS)} / ${ROUNDS}`;
+  $("scoreChip").textContent = `${total.toLocaleString("de-DE")} Punkte`;
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function formatDist(km) {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${Math.round(km).toLocaleString("de-DE")} km`;
+}
+
+function pin(color) {
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    scale: 9, fillColor: color, fillOpacity: 1,
+    strokeColor: "#16324F", strokeWeight: 3,
+  };
+}
+
+/* ---------- Buttons ---------- */
+$("toMapBtn").onclick = () => showLayer("map");
+$("toStreetBtn").onclick = () => showLayer("street");
+$("backToStartBtn").onclick = () => startPano && pano.setPano(startPano);
+$("guessBtn").onclick = submitGuess;
+$("nextBtn").onclick = nextRound;
+$("againBtn").onclick = newGame;
+</script>
+</body>
+</html>
