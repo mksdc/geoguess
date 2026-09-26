@@ -1,6 +1,11 @@
 # GEOGUESS
 Einfache Geoguessing Spiel mit Google Street View
 
+*Google API Key wird benötigt*
+
+[https://mksdc.github.io/geoguess](https://mksdc.github.io/geoguess/)
+
+
 ## Spielablauf
 So läuft das Spiel ab: Du landest an einem zufälligen Ort in Street View (ohne Adresse und Strassennamen) und kannst dich umschauen und herumlaufen. Mit „Zur Karte“ wechselst du auf die Weltkarte, klickst deinen Tipp an und bestätigst. Danach erscheinen der richtige Ort (grün), dein Tipp (gelb) und eine gestrichelte rote Linie dazwischen, zusammen mit der Entfernung in km und den Punkten. Es gibt 5 Runden mit maximal 5000 Punkten pro Runde, ähnlich wie bei GeoGuessr.
 
