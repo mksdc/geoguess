@@ -63,7 +63,7 @@
   p { line-height: 1.5; margin: 0 0 16px; }
   .small { font-size: 14px; color: var(--muted); }
   label { font-weight: 600; display: block; margin-bottom: 6px; }
-  input {
+  input, select {
     font: inherit; width: 100%; padding: 12px; border-radius: 10px;
     border: 2px solid var(--ink); margin-bottom: 16px; background: #fff;
   }
@@ -99,6 +99,8 @@
       <label for="apikey">Google Maps API-Schlüssel</label>
       <input id="apikey" type="text" placeholder="AIza…" autocomplete="off" spellcheck="false">
     </div>
+    <label for="mode">Wo willst du landen?</label>
+    <select id="mode"></select>
     <div id="error"></div>
     <button class="primary" id="startBtn">Spiel starten</button>
   </div>
@@ -147,6 +149,8 @@
     <h2>Spiel vorbei</h2>
     <div class="big" id="finalScore">0</div>
     <p id="finalText">von 25 000 Punkten</p>
+    <label for="endMode">Wo willst du landen?</label>
+    <select id="endMode"></select>
     <button class="primary" id="againBtn">Nochmal spielen</button>
   </div>
 </div>
@@ -181,12 +185,85 @@ const REGIONS = [
   [36, 42, 26, 44, 1],      // Türkei
 ];
 
+// Spielarten zur Auswahl auf dem Start- und Endbildschirm
+// share: Anteil der Runden, die bei einer Stadt starten (Rest: zufälliger Punkt aus REGIONS)
+// spread: Startpunkt liegt zufällig bis zu so viele km vom Stadtzentrum entfernt
+const MODES = {
+  random:       { label: "Zufall",              share: 0,   spread: 8 },
+  cities:       { label: "Städte",              share: 1,   spread: 8 },
+  mostlyCities: { label: "Eher Städte",         share: 0.7, spread: 8 },
+  cityArea:     { label: "Städte und Umgebung", share: 1,   spread: 40 },
+};
+
+// Städte mit guter Street-View-Abdeckung: [lat, lng, Name] – alle gleich wahrscheinlich
+const CITIES = [
+  // Europa
+  [52.52, 13.405, "Berlin"], [53.551, 9.994, "Hamburg"], [48.137, 11.575, "München"], [50.938, 6.96, "Köln"],
+  [50.11, 8.682, "Frankfurt"], [51.34, 12.375, "Leipzig"], [47.377, 8.54, "Zürich"], [46.948, 7.447, "Bern"],
+  [46.204, 6.143, "Genf"], [48.208, 16.373, "Wien"], [47.071, 15.439, "Graz"], [48.857, 2.352, "Paris"],
+  [45.764, 4.835, "Lyon"], [43.296, 5.37, "Marseille"], [44.838, -0.579, "Bordeaux"], [43.605, 1.444, "Toulouse"],
+  [51.507, -0.128, "London"], [53.48, -2.242, "Manchester"], [55.953, -3.189, "Edinburgh"], [53.35, -6.26, "Dublin"],
+  [52.37, 4.895, "Amsterdam"], [50.85, 4.352, "Brüssel"], [55.676, 12.568, "Kopenhagen"], [59.329, 18.069, "Stockholm"],
+  [59.913, 10.752, "Oslo"], [60.17, 24.938, "Helsinki"], [40.417, -3.704, "Madrid"], [41.387, 2.17, "Barcelona"],
+  [37.389, -5.984, "Sevilla"], [39.47, -0.376, "Valencia"], [38.722, -9.139, "Lissabon"], [41.158, -8.629, "Porto"],
+  [41.903, 12.496, "Rom"], [45.464, 9.19, "Mailand"], [40.852, 14.268, "Neapel"], [43.77, 11.256, "Florenz"],
+  [52.23, 21.012, "Warschau"], [50.065, 19.945, "Krakau"], [50.075, 14.437, "Prag"], [47.498, 19.04, "Budapest"],
+  [44.426, 26.103, "Bukarest"], [37.984, 23.728, "Athen"], [46.056, 14.506, "Ljubljana"], [45.815, 15.982, "Zagreb"],
+  [54.687, 25.28, "Vilnius"], [56.95, 24.105, "Riga"], [59.437, 24.754, "Tallinn"],
+  // Nordamerika
+  [40.713, -74.006, "New York"], [42.36, -71.058, "Boston"], [39.952, -75.165, "Philadelphia"], [38.907, -77.037, "Washington"],
+  [33.749, -84.388, "Atlanta"], [25.762, -80.192, "Miami"], [41.878, -87.63, "Chicago"], [42.331, -83.046, "Detroit"],
+  [44.978, -93.265, "Minneapolis"], [32.777, -96.797, "Dallas"], [29.76, -95.37, "Houston"], [39.739, -104.99, "Denver"],
+  [33.448, -112.074, "Phoenix"], [36.17, -115.14, "Las Vegas"], [34.052, -118.244, "Los Angeles"], [37.775, -122.419, "San Francisco"],
+  [47.606, -122.332, "Seattle"], [45.515, -122.679, "Portland"], [29.951, -90.072, "New Orleans"], [36.163, -86.781, "Nashville"],
+  [40.761, -111.891, "Salt Lake City"], [39.1, -94.578, "Kansas City"], [43.653, -79.383, "Toronto"], [45.502, -73.567, "Montreal"],
+  [49.283, -123.121, "Vancouver"], [51.045, -114.057, "Calgary"], [45.421, -75.697, "Ottawa"], [46.813, -71.208, "Québec"],
+  [19.433, -99.133, "Mexiko-Stadt"], [20.659, -103.349, "Guadalajara"], [25.686, -100.316, "Monterrey"], [19.041, -98.206, "Puebla"],
+  // Südamerika
+  [-23.55, -46.633, "São Paulo"], [-22.907, -43.173, "Rio de Janeiro"], [-19.917, -43.935, "Belo Horizonte"], [-25.429, -49.271, "Curitiba"],
+  [-30.035, -51.218, "Porto Alegre"], [-12.977, -38.501, "Salvador"], [-8.048, -34.877, "Recife"], [-3.732, -38.527, "Fortaleza"],
+  [-15.794, -47.882, "Brasília"], [-34.604, -58.382, "Buenos Aires"], [-31.42, -64.188, "Córdoba"], [-33.449, -70.669, "Santiago"],
+  [-33.047, -71.613, "Valparaíso"], [4.711, -74.072, "Bogotá"], [-12.046, -77.043, "Lima"],
+  // Afrika
+  [-33.925, 18.424, "Kapstadt"], [-26.204, 28.047, "Johannesburg"], [-29.858, 31.022, "Durban"], [-25.747, 28.229, "Pretoria"],
+  // Asien
+  [35.676, 139.65, "Tokio"], [34.694, 135.502, "Osaka"], [35.012, 135.768, "Kyoto"], [35.181, 136.906, "Nagoya"],
+  [43.062, 141.354, "Sapporo"], [33.59, 130.402, "Fukuoka"], [34.385, 132.455, "Hiroshima"], [38.268, 140.87, "Sendai"],
+  [37.567, 126.978, "Seoul"], [35.18, 129.075, "Busan"], [25.033, 121.565, "Taipeh"], [13.756, 100.502, "Bangkok"],
+  [18.788, 98.985, "Chiang Mai"], [-6.2, 106.817, "Jakarta"], [-8.65, 115.216, "Denpasar"], [-7.797, 110.371, "Yogyakarta"],
+  [28.614, 77.209, "Delhi"], [19.076, 72.878, "Mumbai"], [12.972, 77.595, "Bangalore"], [22.573, 88.364, "Kolkata"],
+  [55.756, 37.617, "Moskau"], [59.939, 30.316, "St. Petersburg"], [55.796, 49.106, "Kasan"],
+  [41.008, 28.978, "Istanbul"], [39.934, 32.86, "Ankara"], [38.423, 27.143, "Izmir"],
+  // Ozeanien
+  [-33.869, 151.209, "Sydney"], [-37.814, 144.963, "Melbourne"], [-27.47, 153.026, "Brisbane"], [-31.952, 115.861, "Perth"],
+  [-34.929, 138.601, "Adelaide"], [-42.882, 147.327, "Hobart"], [-36.848, 174.763, "Auckland"], [-41.286, 174.776, "Wellington"],
+  [-43.532, 172.636, "Christchurch"],
+];
+
 /* ---------- Zustand ---------- */
 let sv, pano, map, guessMarker, targetMarker, line;
 let target = null, startPano = null;
 let round = 0, total = 0;
 
 const $ = id => document.getElementById(id);
+
+/* ---------- Spielart ---------- */
+let mode = MODES.cities;
+const modeSelects = [$("mode"), $("endMode")];
+for (const sel of modeSelects) {
+  for (const [id, m] of Object.entries(MODES)) sel.add(new Option(m.label, id));
+}
+
+function chooseMode(id) {
+  if (!MODES[id]) id = "cities";
+  mode = MODES[id];
+  modeSelects.forEach(sel => sel.value = id);
+  try { localStorage.setItem("gg_mode", id); } catch (e) {}
+}
+
+let savedMode = null;
+try { savedMode = localStorage.getItem("gg_mode"); } catch (e) {}
+chooseMode(savedMode);
 
 /* ---------- API laden ---------- */
 const HAS_EMBEDDED_KEY = API_KEY && API_KEY !== "....";
@@ -198,6 +275,7 @@ if (HAS_EMBEDDED_KEY) {
 }
 
 $("startBtn").onclick = () => {
+  chooseMode($("mode").value);
   const key = HAS_EMBEDDED_KEY ? API_KEY : $("apikey").value.trim();
   if (!key) { $("error").textContent = "Gib zuerst deinen API-Schlüssel ein."; return; }
   if (!HAS_EMBEDDED_KEY) { try { localStorage.setItem("gg_key", key); } catch (e) {} }
@@ -291,7 +369,7 @@ async function nextRound() {
   pano.setVisible(true);
 }
 
-function randomPoint() {
+function randomRegionPoint() {
   const sum = REGIONS.reduce((s, r) => s + r[4], 0);
   let n = Math.random() * sum;
   const r = REGIONS.find(r => (n -= r[4]) < 0) || REGIONS[0];
@@ -301,12 +379,24 @@ function randomPoint() {
   };
 }
 
+function randomCityPoint() {
+  const [lat, lng] = CITIES[Math.floor(Math.random() * CITIES.length)];
+  // gleichmässig verteilter Punkt im Kreis um das Stadtzentrum
+  const d = mode.spread * Math.sqrt(Math.random());
+  const a = Math.random() * 2 * Math.PI;
+  return {
+    lat: lat + (d * Math.cos(a)) / 111.32,
+    lng: lng + (d * Math.sin(a)) / (111.32 * Math.cos(lat * Math.PI / 180)),
+  };
+}
+
 async function findRandomPanorama(tries = 40) {
   for (let i = 0; i < tries; i++) {
+    const inCity = Math.random() < mode.share;
     try {
       const { data } = await sv.getPanorama({
-        location: randomPoint(),
-        radius: 50000, // 50 km Suchradius
+        location: inCity ? randomCityPoint() : randomRegionPoint(),
+        radius: inCity ? 1000 : 50000, // Suchradius: 1 km in der Stadt, sonst 50 km
         sources: [google.maps.StreetViewSource.GOOGLE], // nur offizielle Google-Aufnahmen
         preference: google.maps.StreetViewPreference.NEAREST,
       });
@@ -405,7 +495,7 @@ $("toStreetBtn").onclick = () => showLayer("street");
 $("backToStartBtn").onclick = () => startPano && pano.setPano(startPano);
 $("guessBtn").onclick = submitGuess;
 $("nextBtn").onclick = nextRound;
-$("againBtn").onclick = newGame;
+$("againBtn").onclick = () => { chooseMode($("endMode").value); newGame(); };
 </script>
 </body>
 </html>

@@ -20,12 +20,23 @@ Den Schlüssel gibst du beim Start im Spiel ein, er wird dann lokal im Browser g
 ### geoguess_api.html
 Den Schlüssel trägst du in der HTML-Datei ein. Die Datei kannst Du lokal hosten, aber niemals im Internet. Ein öffentlicher API key verursacht Kosten.
 ```
-157 // >>> HIER DEINEN GOOGLE MAPS API-SCHLÜSSEL EINTRAGEN <<<
-158 const API_KEY = "....";
+161 // >>> HIER DEINEN GOOGLE MAPS API-SCHLÜSSEL EINTRAGEN <<<
+162 const API_KEY = "....";
 ```
 
 ## Funktionsweise
-Wie der zufällige Ort gefunden wird: Komplett zufällige Koordinaten würden meistens im Meer oder in der Wüste landen. Deshalb wählt das Skript einen zufälligen Punkt in Regionen mit guter Street-View-Abdeckung (Europa, USA, Japan, Brasilien usw.). Dann sucht es mit StreetViewService.getPanorama() im Umkreis von 50 km das nächste offizielle Google-Panorama. Die Liste REGIONS oben im Skript kannst du leicht anpassen, zum Beispiel nur für die Schweiz oder Europa.
+Wie der zufällige Ort gefunden wird: Vor jedem Spiel (auf dem Start- und dem Endbildschirm) wählst du, wo du landen willst:
+
+| Spielart | Was passiert |
+|---|---|
+| Zufall | zufälliger Punkt in grossen Regionen mit guter Street-View-Abdeckung (Liste REGIONS), nächstes Panorama im Umkreis von 50 km. Führt oft auf Landstrassen in der Natur. |
+| Städte (Standard) | zufällige Stadt aus der Liste CITIES (rund 130 Städte weltweit), Punkt bis 8 km vom Zentrum, nächstes Panorama im Umkreis von 1 km. Innenstädte, Vororte, Dörfer am Stadtrand. |
+| Eher Städte | etwa 70 % der Runden wie „Städte“, 30 % wie „Zufall“ |
+| Städte und Umgebung | wie „Städte“, aber bis 40 km vom Zentrum entfernt |
+
+Die Suche nach dem Panorama läuft über StreetViewService.getPanorama(), nur offizielle Google-Aufnahmen. Die gewählte Spielart wird lokal im Browser gespeichert.
+
+Die Spielarten stehen in der Liste MODES oben im Skript (share = Anteil der Stadt-Runden, spread = max. km vom Zentrum). Die Listen CITIES und REGIONS kannst du ebenfalls anpassen, zum Beispiel nur Schweizer Städte.
 
 ## Screenshots
 

@@ -15,14 +15,18 @@ Open `geoguess.html` directly in a browser, or serve the folder (e.g. `python3 -
 ## Two variants kept in sync
 
 - `geoguess.html` is the published version. The user types the key on the start screen, and it is stored in `localStorage` under `gg_key`.
-- `geoguess_api.html` has the key hardcoded in `const API_KEY`. When a real key is set, the input is hidden. It is for local hosting only, never commit a real key. The README cites the line number of `API_KEY` (currently 157–158), so update the README if that line moves.
+- `geoguess_api.html` has the key hardcoded in `const API_KEY`. When a real key is set, the input is hidden. It is for local hosting only, never commit a real key. The README cites the line number of `API_KEY` (currently 161–162), so update the README if that line moves.
 
 The two files are otherwise identical: `diff geoguess.html geoguess_api.html` should show only the key-handling differences. **Apply every gameplay/UI change to both files.**
 
 ## Game architecture (inside the `<script>` block)
 
 - The Maps JS API is loaded dynamically on "Spiel starten", with `callback=initGame`. `gm_authFailure` catches rejected keys.
-- Location picking: `randomPoint()` does a weighted-random pick from `REGIONS` (`[minLat, maxLat, minLng, maxLng, weight]`, areas with good Street View coverage), then `findRandomPanorama()` calls `StreetViewService.getPanorama` with a 50 km radius and only official Google imagery. It makes up to 40 tries.
+- Location picking: `findRandomPanorama()` makes up to 40 tries. The player picks a game type from `MODES` on the start screen (`#mode`) and again on the end screen (`#endMode`). Both selects are filled from `MODES` and kept in sync by `chooseMode()`, which sets `mode` and remembers the choice in `localStorage` as `gg_mode`. On each try, `mode.share` decides between:
+  - City mode: `randomCityPoint()` picks a random point within `mode.spread` km of a random entry in `CITIES`, and the panorama search radius is 1 km.
+  - Region mode: `randomRegionPoint()` picks a weighted-random box from `REGIONS` and a random point inside it, and the search radius is 50 km.
+
+  Both modes accept only official Google imagery. Region mode tends to land on rural roads, which is why cities were added. The mode select sits outside `#keyBox` in `geoguess_api.html` so it stays visible when the key is embedded.
 - The panorama hides the address and road labels (`addressControl`, `showRoadLabels: false`). Keep this, or the game is trivial.
 - Scoring: `MAX_POINTS * exp(-km / 2000)` per round, using the haversine distance, over `ROUNDS` = 5 rounds.
 - Screens/layers (`#start`, `#game` → `#streetLayer`/`#mapLayer`, `#end`) are switched with the `.hidden` class (visibility, not display, so the Maps containers keep their size).
